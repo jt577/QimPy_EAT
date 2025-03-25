@@ -4,8 +4,9 @@
 
 QimPy (pronounced [/'kɪm-paɪ'/](https://en.wikipedia.org/wiki/Help:IPA/English))
 is a Python package for Quantum-Integrated Multi-PhYsics. This repository implements
-effective atom theory (EAT) for rapid gradient-based optimization of objective functions
-involving converged DFT energies. 
+effective atom theory (EAT) in QimPy for rapid gradient-based 
+optimization of objective functions involving converged DFT energies. The original code 
+without EAT can be found here: https://github.com/shankar1729/qimpy.git.
 
 # Coding style
 
