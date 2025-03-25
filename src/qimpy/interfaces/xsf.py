@@ -93,13 +93,32 @@ def write_xsf(
     h5_file = h5py.File(checkpoint, "r")
     ions = h5_file["ions"]
     types = ions["types"][:]
+    if "symbols" in ions.attrs:
+        symbol_str = ions.attrs["symbols"]
+    elif "symbols" in ions:
+        # Read the dataset and decode if needed
+        symbols_data = ions["symbols"][()]
+        if isinstance(symbols_data, bytes):
+            symbol_str = symbols_data.decode("utf-8")
+        else:
+            symbol_str = str(symbols_data)
+    else:
+        raise KeyError("No ion symbols found in the checkpoint file.")
+
     symbols = np.repeat(
-        np.array(ions.attrs["symbols"].split(",")),
+        np.array(symbol_str.split(",")),
         np.unique(types, return_counts=True)[1],
     )
+
     to_ang = Unit.convert(1, "Angstrom").value
     lattice = h5_file["lattice"]
-    history = h5_file["geometry/action/history"]
+    geometry_action = h5_file["geometry/action"]
+    if "history" in geometry_action:
+        history = geometry_action["history"]
+    else:
+        # Provide a default value if "history" doesn't exist
+        history = None  # or history = [] if you expect an iterable
+
 
     with open(xsf_file, "w") as f:
         if animated:
@@ -117,7 +136,15 @@ def write_xsf(
                     print_positions(f, symbols, pos_n, f"{n+1}")
 
             else:
-                lattice_vecs = lattice["Rbasis"][:] * to_ang
+                if "Rbasis" in lattice:
+                    # If "Rbasis" is a dataset, read it as usual.
+                    lattice_vecs = lattice["Rbasis"][:] * to_ang
+                elif "Rbasis" in lattice.attrs:
+                    # If it's an attribute, read it from there.
+                    lattice_vecs = lattice.attrs["Rbasis"] * to_ang
+                else:
+                    raise KeyError("No 'Rbasis' found in lattice group.")
+
                 positions = np.einsum("ij,klj->kli", lattice_vecs, fractional_positions)
                 print_lattice_vecs(f, lattice_vecs, "")
 
@@ -125,7 +152,15 @@ def write_xsf(
                     print_positions(f, symbols, pos_n, f"{n+1}")
 
         else:
-            lattice_vecs = lattice["Rbasis"][:] * to_ang
+            if "Rbasis" in lattice:
+                # If "Rbasis" is a dataset, read it as usual.
+                lattice_vecs = lattice["Rbasis"][:] * to_ang
+            elif "Rbasis" in lattice.attrs:
+                # If it's an attribute, read it from there.
+                lattice_vecs = lattice.attrs["Rbasis"] * to_ang
+            else:
+                raise KeyError("No 'Rbasis' found in lattice group.")
+
             fractional_positions = ions["positions"][:]
             positions = (lattice_vecs @ fractional_positions.T).T
             print_header(f)

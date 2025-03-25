@@ -132,21 +132,38 @@ class Fillings(TreeNode):
         ) -> torch.Tensor:
             """Ensure that x = M or B is appropriate for spin mode."""
             x_len = (3 if electrons.spinorial else 1) if electrons.spin_polarized else 0
-            if x:
-                if not electrons.spin_polarized:
-                    raise ValueError(
-                        f"{x_name} only allowed for" f" spin-polarized calculations"
-                    )
-                x_arr = torch.tensor(x, device=rc.device, dtype=torch.double).flatten()
-                if x_len != len(x_arr):
-                    prefix = "" if electrons.spinorial else "non-"
-                    raise ValueError(
-                        f"{x_name} must have exactly {x_len} "
-                        f"components in {prefix}spinorial mode"
-                    )
-                return x_arr
-            else:
-                return torch.zeros(x_len, device=rc.device)
+            try:
+                if x:
+                    if not electrons.spin_polarized:
+                        raise ValueError(
+                            f"{x_name} only allowed for" f" spin-polarized calculations"
+                        )
+                    x_arr = torch.tensor(x, device=rc.device, dtype=torch.double).flatten()
+                    if x_len != len(x_arr):
+                        prefix = "" if electrons.spinorial else "non-"
+                        raise ValueError(
+                            f"{x_name} must have exactly {x_len} "
+                            f"components in {prefix}spinorial mode"
+                        )
+                    return x_arr
+                else:
+                    return torch.zeros(x_len, device=rc.device)
+            except:
+                if x.size > 0:
+                    if not electrons.spin_polarized:
+                        raise ValueError(
+                            f"{x_name} only allowed for" f" spin-polarized calculations"
+                        )
+                    x_arr = torch.tensor(x, device=rc.device, dtype=torch.double).flatten()
+                    if x_len != len(x_arr):
+                        prefix = "" if electrons.spinorial else "non-"
+                        raise ValueError(
+                            f"{x_name} must have exactly {x_len} "
+                            f"components in {prefix}spinorial mode"
+                        )
+                    return x_arr
+                else:
+                    return torch.zeros(x_len, device=rc.device)
 
         self.B = check_magnetic(B, "B")
         self.M = check_magnetic(M, "M")

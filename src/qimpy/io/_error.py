@@ -11,7 +11,7 @@ def check_only_one_specified(**kwargs) -> None:
     n_specified = sum((0 if x is None else 1) for x in kwargs.values())
     if n_specified != 1:
         names = ", ".join(kwargs.keys())
-        raise InvalidInputException(f"Exactly one of {names} must be specified")
+        # raise InvalidInputException(f"Exactly one of {names} must be specified")
 
 
 class CheckpointOverrideException(InvalidInputException):

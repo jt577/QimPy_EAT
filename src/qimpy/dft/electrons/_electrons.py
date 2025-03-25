@@ -285,7 +285,7 @@ class Electrons(TreeNode):
             self.lcao.update(system)
         else:
             self.C = self.C.orthonormalize()  # For random / checkpoint case
-
+            
     @property
     def n_densities(self) -> int:
         """Number of electron density / magnetization components in `n`."""
@@ -364,6 +364,24 @@ class Electrons(TreeNode):
         VH_tilde = system.coulomb.kernel(rho_tilde)  # Hartree potential
         system.energy["Ehartree"] = 0.5 * (rho_tilde ^ VH_tilde).item()
         system.energy["Eloc"] = (rho_tilde ^ system.ions.Vloc_tilde).item()
+        # Create EAT gradient for local potential
+        system.ions.Eloc_mixGrad = {}
+        if any(item is not None for item in system.ions.effective_mix):
+            for symbol, Vloc_grad in system.ions.Vloc_tilde_mixGrad.items():
+                grad_list = []
+                for grad in Vloc_grad:
+                    grad_list.append((rho_tilde ^ grad).item())
+                system.ions.Eloc_mixGrad[symbol] = grad_list
+        
+        # Update fillings EAT gradient
+        system.ions.Efillings_mixGrad = {}
+        for i, (symbol, mix, eff_Z_list) in enumerate(zip(system.ions.symbols, system.ions.effective_mix, system.ions.effective_Z_list)):
+            if mix is not None:
+                grad_mix_temp = []
+                for Z_entry in eff_Z_list:
+                    grad_mix_temp.append((self.fillings.mu * Z_entry).item())
+                system.ions.Efillings_mixGrad[symbol] = grad_mix_temp
+
         if requires_grad:
             self.n_tilde.grad[0] += system.ions.Vloc_tilde + VH_tilde
             self.n_tilde.grad.symmetrize()
@@ -390,6 +408,22 @@ class Electrons(TreeNode):
             ).real,
             self.kpoints.comm,
         )
+        # Create EAT gradient for nonlocal energy
+        if any(item is not None for item in system.ions.effective_mix):
+            system.ions.Enl_mixGrad = {}
+            for symbol, D_all_grad in system.ions.D_all_mixGrad.items():
+                grad_list = []
+                for grad in D_all_grad:
+                    grad_list.append(globalreduce.sum(
+                                                (
+                                                    (beta_C.conj() * (grad @ beta_C)).sum(dim=-2)
+                                                    * self.basis.w_sk
+                                                    * f
+                                                ).real,
+                                                self.kpoints.comm,
+                                            )
+                                    )
+                system.ions.Enl_mixGrad[symbol] = grad_list
 
     def accumulate_geometry_grad(self, system: dft.System) -> None:
         """Accumulate geometry gradient contributions of electronic energy.

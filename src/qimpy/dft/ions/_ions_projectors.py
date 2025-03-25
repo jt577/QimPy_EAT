@@ -42,30 +42,92 @@ def get_projectors(
     if not n_proj_tot:  # no ions or all local pseudopotentials
         return dft.electrons.Wavefunction(basis, coeff=proj)
     # Get harmonics (per l,m):
-    l_max = max(ps.l_max for ps in self.pseudopotentials)
+    l_list = []
+    for i_ps, ps in enumerate(self.pseudopotentials):
+        # Chek if pseudopotential corresponds to an effective atom
+        if isinstance(ps, list):
+            for p in ps:
+                l_list.append(p.l_max)
+        else:
+            l_list.append(ps.l_max)
+    l_max = max(l_list)
     Ylm_tilde = sh.get_harmonics_tilde(l_max, Gk)
     # Get per-atom translations:
     translations = self.translation_phase(iGk).transpose(1, 2)  # k, atom, G
     translations *= 1.0 / np.sqrt(self.lattice.volume)  # due to factor in C
     # Compute projectors by species:
     i_proj_start = 0
-    for ps, n_ions_i, slice_i in zip(
-        self.pseudopotentials, self.n_ions_type, self.slices
-    ):
-        # Select projectors (beta) or orbitals (psi) as requested:
-        pqn = ps.pqn_psi if get_psi else ps.pqn_beta
-        f_t_coeff = (ps.psi if get_psi else ps.beta).f_tilde_coeff
-        # Current range:
-        n_proj_cur = pqn.n_tot * n_ions_i
-        i_proj_stop = i_proj_start + n_proj_cur
-        # Compute atomic template:
-        proj_atom = Ginterp(f_t_coeff)[pqn.i_rf] * Ylm_tilde[pqn.i_lm]  # i_proj,k,G
-        proj_atom = proj_atom.transpose(0, 1)[:, None]  # k,1,i_proj,G
-        # Repeat by translation to each atom:
-        trans_cur = translations[:, slice_i, None]  # k,atom,1,G
-        proj[0, :, i_proj_start:i_proj_stop, 0] = (proj_atom * trans_cur).flatten(1, 2)
-        # Prepare for next species:
-        i_proj_start = i_proj_stop
+    for ps, n_ions_i, slice_i, mix in zip(
+        self.pseudopotentials, self.n_ions_type, self.slices, self.effective_mix
+    ):  
+        if get_psi:
+            # Check if pseudopotential corresponds to an effective atom
+            if isinstance(ps, list):
+                max_mix_index = np.argmax(mix.values())
+                for ip, p in enumerate(ps):
+                    if ip == max_mix_index:
+                        pqn = p.pqn_psi
+                        f_t_coeff = (p.psi).f_tilde_coeff
+                        # Current range:
+                        n_proj_cur = pqn.n_tot * n_ions_i
+                        i_proj_stop = i_proj_start + n_proj_cur
+                        # Compute atomic template:
+                        proj_atom = Ginterp(f_t_coeff)[pqn.i_rf] * Ylm_tilde[pqn.i_lm]
+                        proj_atom = proj_atom.transpose(0, 1)[:, None]  # k,1,i_proj,G
+                        # Repeat by translation to each atom 
+                        # For each constituent element in the effective atom we must translate to the same position
+                        trans_cur = translations[:, slice_i, None]  # k,atom,1,G
+                        proj[0, :, i_proj_start:i_proj_stop, 0] = (proj_atom * trans_cur).flatten(1, 2)
+                        # Prepare for next species:
+                        i_proj_start = i_proj_stop
+            else:
+                # Select projectors (beta) or orbitals (psi) as requested:
+                pqn = ps.pqn_psi
+                f_t_coeff = (ps.psi).f_tilde_coeff
+                # Current range:
+                n_proj_cur = pqn.n_tot * n_ions_i
+                i_proj_stop = i_proj_start + n_proj_cur
+                # Compute atomic template:
+                proj_atom = Ginterp(f_t_coeff)[pqn.i_rf] * Ylm_tilde[pqn.i_lm]  # i_proj,k,G
+                proj_atom = proj_atom.transpose(0, 1)[:, None]  # k,1,i_proj,G
+                # Repeat by translation to each atom:
+                trans_cur = translations[:, slice_i, None]  # k,atom,1,G
+                proj[0, :, i_proj_start:i_proj_stop, 0] = (proj_atom * trans_cur).flatten(1, 2)
+                # Prepare for next species:
+                i_proj_start = i_proj_stop
+        else:
+            # Check if pseudopotential corresponds to an effective atom
+            if isinstance(ps, list):
+                for p in ps:
+                    pqn = p.pqn_psi if get_psi else p.pqn_beta
+                    f_t_coeff = (p.psi if get_psi else p.beta).f_tilde_coeff
+                    # Current range:
+                    n_proj_cur = pqn.n_tot * n_ions_i
+                    i_proj_stop = i_proj_start + n_proj_cur
+                    # Compute atomic template:
+                    proj_atom = Ginterp(f_t_coeff)[pqn.i_rf] * Ylm_tilde[pqn.i_lm]
+                    proj_atom = proj_atom.transpose(0, 1)[:, None]  # k,1,i_proj,G
+                    # Repeat by translation to each atom 
+                    # For each constituent element in the effective atom we must translate to the same position
+                    trans_cur = translations[:, slice_i, None]  # k,atom,1,G
+                    proj[0, :, i_proj_start:i_proj_stop, 0] = (proj_atom * trans_cur).flatten(1, 2)
+                    # Prepare for next species:
+                    i_proj_start = i_proj_stop
+            else:
+                # Select projectors (beta) or orbitals (psi) as requested:
+                pqn = ps.pqn_psi if get_psi else ps.pqn_beta
+                f_t_coeff = (ps.psi if get_psi else ps.beta).f_tilde_coeff
+                # Current range:
+                n_proj_cur = pqn.n_tot * n_ions_i
+                i_proj_stop = i_proj_start + n_proj_cur
+                # Compute atomic template:
+                proj_atom = Ginterp(f_t_coeff)[pqn.i_rf] * Ylm_tilde[pqn.i_lm]  # i_proj,k,G
+                proj_atom = proj_atom.transpose(0, 1)[:, None]  # k,1,i_proj,G
+                # Repeat by translation to each atom:
+                trans_cur = translations[:, slice_i, None]  # k,atom,1,G
+                proj[0, :, i_proj_start:i_proj_stop, 0] = (proj_atom * trans_cur).flatten(1, 2)
+                # Prepare for next species:
+                i_proj_start = i_proj_stop
     # Project out padded entries:
     pad_index = basis.pad_index if full_basis else basis.pad_index_mine
     proj[pad_index] = 0.0
@@ -104,23 +166,44 @@ def projectors_grad(
         for ps, n_ions_i, slice_i in zip(
             self.pseudopotentials, self.n_ions_type, self.slices
         ):
-            # Get projector range for this species:
-            pqn = ps.pqn_psi if is_psi else ps.pqn_beta
-            n_proj_cur = pqn.n_tot * n_ions_i
-            i_proj_stop = i_proj_start + n_proj_cur
-            # Reduce pp_grad over projectors on each atom:
-            pp_grad_cur = dft.electrons.Wavefunction(
-                basis,
-                coeff=pp_grad[:, :, i_proj_start:i_proj_stop]
-                .view(pp_grad.shape[:2] + (n_ions_i, pqn.n_tot) + pp_grad.shape[3:])
-                .sum(dim=3),
-            )
-            # Convert to forces:
-            pos_grad[slice_i] += 2.0 * (pp_grad_cur ^ d_by_dpos).wait().real.sum(
-                dim=(0, 1)
-            )
-            # Prepare for next species:
-            i_proj_start = i_proj_stop
+            # Check if pseudopotential corresponds to an effective atom
+            if isinstance(ps, list):
+                for p in ps:
+                    # Get projector range for this species:
+                    pqn = p.pqn_psi if is_psi else p.pqn_beta
+                    n_proj_cur = pqn.n_tot * n_ions_i
+                    i_proj_stop = i_proj_start + n_proj_cur
+                    # Reduce pp_grad over projectors on each atom:
+                    pp_grad_cur = dft.electrons.Wavefunction(
+                        basis,
+                        coeff=pp_grad[:, :, i_proj_start:i_proj_stop]
+                        .view(pp_grad.shape[:2] + (n_ions_i, pqn.n_tot) + pp_grad.shape[3:])
+                        .sum(dim=3),
+                    )
+                    # Convert to forces:
+                    pos_grad[slice_i] += 2.0 * (pp_grad_cur ^ d_by_dpos).wait().real.sum(
+                        dim=(0, 1)
+                    )
+                    # Prepare for next species:
+                    i_proj_start = i_proj_stop
+            else:
+                # Get projector range for this species:
+                pqn = ps.pqn_psi if is_psi else ps.pqn_beta
+                n_proj_cur = pqn.n_tot * n_ions_i
+                i_proj_stop = i_proj_start + n_proj_cur
+                # Reduce pp_grad over projectors on each atom:
+                pp_grad_cur = dft.electrons.Wavefunction(
+                    basis,
+                    coeff=pp_grad[:, :, i_proj_start:i_proj_stop]
+                    .view(pp_grad.shape[:2] + (n_ions_i, pqn.n_tot) + pp_grad.shape[3:])
+                    .sum(dim=3),
+                )
+                # Convert to forces:
+                pos_grad[slice_i] += 2.0 * (pp_grad_cur ^ d_by_dpos).wait().real.sum(
+                    dim=(0, 1)
+                )
+                # Prepare for next species:
+                i_proj_start = i_proj_stop
 
         basis.kpoints.comm.Allreduce(MPI.IN_PLACE, BufferView(pos_grad))
         self.positions.grad += pos_grad
@@ -150,31 +233,60 @@ def projectors_grad(
         for ps, n_ions_i, slice_i in zip(
             self.pseudopotentials, self.n_ions_type, self.slices
         ):
-            # Get projector range for this species:
-            pqn = ps.pqn_psi if is_psi else ps.pqn_beta
-            n_proj_cur = pqn.n_tot * n_ions_i
-            i_proj_stop = i_proj_start + n_proj_cur
-            p_grad_cur = proj.grad.coeff[:, :, i_proj_start:i_proj_stop]
-            # Reduce over atoms using structure factor:
-            p_grad_cur = p_grad_cur.unflatten(2, (n_ions_i, -1))  # 1,k,atom,i_proj,1,G
-            trans_cur = translations[None, :, slice_i, None, None]  # 1,k,atom,1,1,G
-            p_grad_atom = (trans_cur.conj() * p_grad_cur).sum(dim=2)  # 1,k,i_proj,1,G
-            # Propagate to derivative w.r.t Gk:
-            f_t_coeff = (ps.psi if is_psi else ps.beta).f_tilde_coeff
-            proj_atom_prime = (
-                Gk_hat * (Ginterp_prime(f_t_coeff)[pqn.i_rf] * Ylm_tilde[pqn.i_lm])
-                + Ginterp(f_t_coeff)[pqn.i_rf] * Ylm_tilde_prime[:, pqn.i_lm]
-            )  # 3,i_proj,k,G
-            Gk_grad = dft.electrons.Wavefunction(
-                basis,
-                coeff=(
-                    p_grad_atom.conj() * proj_atom_prime.transpose(1, 2).unsqueeze(3)
-                ).sum(dim=2, keepdim=True),
-            )
-            # Propagate to lattice derivative:
-            lattice_grad += 2.0 * (minus_Gk ^ Gk_grad).wait().real.sum(dim=1).squeeze()
-            # Prepare for next species:
-            i_proj_start = i_proj_stop
+            # Check if pseudopotential corresponds to an effective atom
+            if isinstance(ps, list):
+                for p in ps:
+                    # Get projector range for this species:
+                    pqn = p.pqn_psi if is_psi else p.pqn_beta
+                    n_proj_cur = pqn.n_tot * n_ions_i
+                    i_proj_stop = i_proj_start + n_proj_cur
+                    p_grad_cur = proj.grad.coeff[:, :, i_proj_start:i_proj_stop]
+                    # Reduce over atoms using structure factor:
+                    p_grad_cur = p_grad_cur.unflatten(2, (n_ions_i, -1))  # 1,k,atom,i_proj,1,G
+                    trans_cur = translations[None, :, slice_i, None, None]  # 1,k,atom,1,1,G
+                    p_grad_atom = (trans_cur.conj() * p_grad_cur).sum(dim=2)  # 1,k,i_proj,1,G
+                    # Propagate to derivative w.r.t Gk:
+                    f_t_coeff = (p.psi if is_psi else p.beta).f_tilde_coeff
+                    proj_atom_prime = (
+                        Gk_hat * (Ginterp_prime(f_t_coeff)[pqn.i_rf] * Ylm_tilde[pqn.i_lm])
+                        + Ginterp(f_t_coeff)[pqn.i_rf] * Ylm_tilde_prime[:, pqn.i_lm]
+                    )  # 3,i_proj,k,G
+                    Gk_grad = dft.electrons.Wavefunction(
+                        basis,
+                        coeff=(
+                            p_grad_atom.conj() * proj_atom_prime.transpose(1, 2).unsqueeze(3)
+                        ).sum(dim=2, keepdim=True),
+                    )
+                    # Propagate to lattice derivative:
+                    lattice_grad += 2.0 * (minus_Gk ^ Gk_grad).wait().real.sum(dim=1).squeeze()
+                    # Prepare for next species:
+                    i_proj_start = i_proj_stop
+            else:
+                # Get projector range for this species:
+                pqn = ps.pqn_psi if is_psi else ps.pqn_beta
+                n_proj_cur = pqn.n_tot * n_ions_i
+                i_proj_stop = i_proj_start + n_proj_cur
+                p_grad_cur = proj.grad.coeff[:, :, i_proj_start:i_proj_stop]
+                # Reduce over atoms using structure factor:
+                p_grad_cur = p_grad_cur.unflatten(2, (n_ions_i, -1))  # 1,k,atom,i_proj,1,G
+                trans_cur = translations[None, :, slice_i, None, None]  # 1,k,atom,1,1,G
+                p_grad_atom = (trans_cur.conj() * p_grad_cur).sum(dim=2)  # 1,k,i_proj,1,G
+                # Propagate to derivative w.r.t Gk:
+                f_t_coeff = (ps.psi if is_psi else ps.beta).f_tilde_coeff
+                proj_atom_prime = (
+                    Gk_hat * (Ginterp_prime(f_t_coeff)[pqn.i_rf] * Ylm_tilde[pqn.i_lm])
+                    + Ginterp(f_t_coeff)[pqn.i_rf] * Ylm_tilde_prime[:, pqn.i_lm]
+                )  # 3,i_proj,k,G
+                Gk_grad = dft.electrons.Wavefunction(
+                    basis,
+                    coeff=(
+                        p_grad_atom.conj() * proj_atom_prime.transpose(1, 2).unsqueeze(3)
+                    ).sum(dim=2, keepdim=True),
+                )
+                # Propagate to lattice derivative:
+                lattice_grad += 2.0 * (minus_Gk ^ Gk_grad).wait().real.sum(dim=1).squeeze()
+                # Prepare for next species:
+                i_proj_start = i_proj_stop
 
         basis.kpoints.comm.Allreduce(MPI.IN_PLACE, BufferView(lattice_grad))
         self.lattice.grad += lattice_grad

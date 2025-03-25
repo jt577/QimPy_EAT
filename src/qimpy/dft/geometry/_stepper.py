@@ -39,9 +39,16 @@ class Stepper:
             if self._lowdin is None:
                 self._lowdin = Lowdin(self.system.electrons.C)
             self._lowdin.remove_atomic_projections()
-
-        delta_positions = step_size * (direction.ions @ lattice.invRbasis.T)
+        
+        # Create a full-size delta and fill only the moveable indices:
+        delta_positions = torch.zeros_like(self.system.ions.positions)
+        mask = self.system.ions.moveable.bool()
+        # direction.ions has shape (n_moveable, 3)
+        delta_positions[mask] = step_size * (direction.ions @ lattice.invRbasis.T)
         self.system.ions.positions += delta_positions
+
+        # delta_positions = step_size * (direction.ions @ lattice.invRbasis.T)
+        # self.system.ions.positions += delta_positions
         if lattice.movable:
             lattice.update(
                 lattice.Rbasis + step_size * (direction.lattice @ lattice.Rbasis),
@@ -67,12 +74,24 @@ class Stepper:
         # Update forces / stresses if needed:
         if require_grad:
             system.geometry_grad()  # update forces / stress
-            gradient = self.constrain(
-                Gradient(
-                    ions=-system.ions.forces,
-                    lattice=(lattice.grad if lattice.movable else None),
-                )
+            # Account for obtain gradient for subspace of moveable atoms only
+            # Don't impose self.constrain on subspace gradient (causes errors now)
+            full_gradient = Gradient(
+                ions=-system.ions.forces,
+                lattice=(lattice.grad if lattice.movable else None),
             )
+            mask = system.ions.moveable.bool()  # shape: (n_ions,)
+            gradient = Gradient(
+                ions=full_gradient.ions[mask],
+                lattice=full_gradient.lattice
+            )
+            # # Original code:
+            # gradient = self.constrain(
+            #     Gradient(
+            #         ions=-system.ions.forces,
+            #         lattice=(lattice.grad if lattice.movable else None),
+            #     )
+            # )
             return system.energy, gradient
         else:
             return system.energy, None

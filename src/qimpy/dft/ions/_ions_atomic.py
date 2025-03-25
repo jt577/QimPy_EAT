@@ -22,22 +22,43 @@ def get_atomic_orbital_index(
     result = torch.empty((n_psi_tot, 5), dtype=torch.long, device=rc.device)
     i_psi_start = 0
     i_ion_start = 0
-    for n_ions_i, ps in zip(self.n_ions_type, self.pseudopotentials):
-        # Quantum numbers for a single ion (as integers):
-        index_atom = ps.pqn_psi.get_index(n_spinor)
-        # Repeat quantum numbers for all ions:
-        n_psi_each = index_atom.shape[0]
-        i_psi_stop = i_psi_start + n_ions_i * n_psi_each
-        result_i = result[i_psi_start:i_psi_stop].view(n_ions_i, n_psi_each, 5)
-        result_i[..., 1:] = index_atom[None]
-        # Add ion indices:
-        i_ion_stop = i_ion_start + n_ions_i
-        result_i[..., 0] = torch.arange(
-            i_ion_start, i_ion_stop, dtype=torch.long, device=rc.device
-        )[:, None]
-        # Update for next species:
-        i_psi_start = i_psi_stop
-        i_ion_start = i_ion_stop
+    for n_ions_i, ps, mix in zip(self.n_ions_type, self.pseudopotentials, self.effective_mix):
+        # Determine if effective atom pseudopotential
+        if isinstance(ps, list):
+            max_mix_index = torch.argmax(torch.tensor(list(mix.values())))
+            for ip, p in enumerate(ps):
+                if ip == max_mix_index:
+                    # Quantum numbers for a single ion (as integers):
+                    index_atom = p.pqn_psi.get_index(n_spinor)
+                    # Repeat quantum numbers for all ions:
+                    n_psi_each = index_atom.shape[0]
+                    i_psi_stop = i_psi_start + n_ions_i * n_psi_each
+                    result_i = result[i_psi_start:i_psi_stop].view(n_ions_i, n_psi_each, 5)
+                    result_i[..., 1:] = index_atom[None]
+                    i_ion_stop = i_ion_start + n_ions_i
+                    result_i[..., 0] = torch.arange(
+                        i_ion_start, i_ion_stop, dtype=torch.long, device=rc.device
+                    )[:, None]
+                    # Update for next species:
+                    i_psi_start = i_psi_stop
+            i_ion_start = i_ion_stop
+        else:
+            # Ordinary pseudopotential
+            # Quantum numbers for a single ion (as integers):
+            index_atom = ps.pqn_psi.get_index(n_spinor)
+            # Repeat quantum numbers for all ions:
+            n_psi_each = index_atom.shape[0]
+            i_psi_stop = i_psi_start + n_ions_i * n_psi_each
+            result_i = result[i_psi_start:i_psi_stop].view(n_ions_i, n_psi_each, 5)
+            result_i[..., 1:] = index_atom[None]
+            # Add ion indices:
+            i_ion_stop = i_ion_start + n_ions_i
+            result_i[..., 0] = torch.arange(
+                i_ion_start, i_ion_stop, dtype=torch.long, device=rc.device
+            )[:, None]
+            # Update for next species:
+            i_psi_start = i_psi_stop
+            i_ion_start = i_ion_stop
     return result
 
 
@@ -139,8 +160,18 @@ def get_atomic_density(
     iG = grid.get_mesh("H").to(torch.double)  # half-space
     G = ((iG @ grid.lattice.Gbasis.T) ** 2).sum(dim=-1).sqrt()
     Ginterp = Interpolator(G, RadialFunction.DG)
-    for slice_i, ps in zip(self.slices, self.pseudopotentials):
-        rho_i = Ginterp(ps.rho_atom.f_tilde_coeff / grid.lattice.volume)
+    effective_mix = self.effective_mix
+    for i_ps, (slice_i, ps) in enumerate(zip(self.slices, self.pseudopotentials)):
+        # Check if pseudopotential corresponds to an effective atom
+        if isinstance(ps, list):
+            rho_i_list = []
+            # Linearly combine rho_i's with mix weights
+            for mix_weight, p in zip(effective_mix[i_ps].values(), ps):
+                rho_i_list.append(Ginterp(p.rho_atom.f_tilde_coeff / grid.lattice.volume) * mix_weight)
+            rho_i = sum(rho_i_list)
+        else:
+            # Normal pseudopotential
+            rho_i = Ginterp(ps.rho_atom.f_tilde_coeff / grid.lattice.volume)
         SF = self.translation_phase(iG, slice_i)
         n.data[0] += rho_i[0] * (SF @ N_frac[slice_i])
         if n_mag:

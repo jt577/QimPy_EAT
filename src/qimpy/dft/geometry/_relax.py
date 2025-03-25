@@ -159,11 +159,19 @@ class Relax(Minimize[Gradient]):
                 state.K_gradient.lattice *= self.latticeK
             # Extra convergence checks:
             system = self.stepper.system
-            state.extra = [
-                system.ions.forces.norm(dim=1).max().item()
-                if system.ions.n_ions
-                else 0.0
-            ]  # fmax
+            mask = system.ions.moveable.bool()  # boolean mask for moveable ions
+            if mask.any():
+                # Compute the force norm for only the moveable ions
+                fmax = system.ions.forces[mask].norm(dim=1).max().item()
+            else:
+                fmax = 0.0
+            state.extra = [fmax]
+            # # Original code:
+            # state.extra = [
+            #     system.ions.forces.norm(dim=1).max().item()
+            #     if system.ions.n_ions
+            #     else 0.0
+            # ]  # fmax
             if system.lattice.movable:
                 state.extra.append(system.lattice.stress.norm().item())  # |stress|
 
