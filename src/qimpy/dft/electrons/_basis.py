@@ -300,7 +300,13 @@ class Basis(TreeNode):
         Convenient wrapper used in many basis operations."""
         if self.division.n_procs > 1:
             rc.current_stream_synchronize()
-            self.comm.Allreduce(MPI.IN_PLACE, BufferView(x), op)
+            if not x.is_contiguous():
+                # Create a contiguous copy, perform allreduce, then copy the result back.
+                x_cont = x.contiguous()
+                self.comm.Allreduce(MPI.IN_PLACE, BufferView(x_cont), op)
+                x.copy_(x_cont)
+            else:
+                self.comm.Allreduce(MPI.IN_PLACE, BufferView(x), op)
 
     def _save_checkpoint(
         self, cp_path: CheckpointPath, context: CheckpointContext
